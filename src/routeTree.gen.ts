@@ -12,8 +12,11 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as ManifestoRouteImport } from './routes/manifesto'
 import { Route as EcosystemRouteImport } from './routes/ecosystem'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
+import { Route as AuthenticatedAppAssistantIndexRouteImport } from './routes/_authenticated/app.assistant.index'
+import { Route as AuthenticatedAppAssistantThreadIdRouteImport } from './routes/_authenticated/app.assistant.$threadId'
 
 const ManifestoRoute = ManifestoRouteImport.update({
   id: '/manifesto',
@@ -30,6 +33,10 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -40,6 +47,18 @@ const ApiChatRoute = ApiChatRouteImport.update({
   path: '/api/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedAppAssistantIndexRoute =
+  AuthenticatedAppAssistantIndexRouteImport.update({
+    id: '/app/assistant/',
+    path: '/app/assistant/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppAssistantThreadIdRoute =
+  AuthenticatedAppAssistantThreadIdRouteImport.update({
+    id: '/app/assistant/$threadId',
+    path: '/app/assistant/$threadId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -47,6 +66,8 @@ export interface FileRoutesByFullPath {
   '/ecosystem': typeof EcosystemRoute
   '/manifesto': typeof ManifestoRoute
   '/api/chat': typeof ApiChatRoute
+  '/app/assistant/$threadId': typeof AuthenticatedAppAssistantThreadIdRoute
+  '/app/assistant/': typeof AuthenticatedAppAssistantIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,25 +75,54 @@ export interface FileRoutesByTo {
   '/ecosystem': typeof EcosystemRoute
   '/manifesto': typeof ManifestoRoute
   '/api/chat': typeof ApiChatRoute
+  '/app/assistant/$threadId': typeof AuthenticatedAppAssistantThreadIdRoute
+  '/app/assistant': typeof AuthenticatedAppAssistantIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/ecosystem': typeof EcosystemRoute
   '/manifesto': typeof ManifestoRoute
   '/api/chat': typeof ApiChatRoute
+  '/_authenticated/app/assistant/$threadId': typeof AuthenticatedAppAssistantThreadIdRoute
+  '/_authenticated/app/assistant/': typeof AuthenticatedAppAssistantIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/ecosystem' | '/manifesto' | '/api/chat'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/ecosystem'
+    | '/manifesto'
+    | '/api/chat'
+    | '/app/assistant/$threadId'
+    | '/app/assistant/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/ecosystem' | '/manifesto' | '/api/chat'
-  id: '__root__' | '/' | '/auth' | '/ecosystem' | '/manifesto' | '/api/chat'
+  to:
+    | '/'
+    | '/auth'
+    | '/ecosystem'
+    | '/manifesto'
+    | '/api/chat'
+    | '/app/assistant/$threadId'
+    | '/app/assistant'
+  id:
+    | '__root__'
+    | '/'
+    | '/_authenticated'
+    | '/auth'
+    | '/ecosystem'
+    | '/manifesto'
+    | '/api/chat'
+    | '/_authenticated/app/assistant/$threadId'
+    | '/_authenticated/app/assistant/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   EcosystemRoute: typeof EcosystemRoute
   ManifestoRoute: typeof ManifestoRoute
@@ -102,6 +152,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -116,11 +173,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiChatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/app/assistant/': {
+      id: '/_authenticated/app/assistant/'
+      path: '/app/assistant'
+      fullPath: '/app/assistant/'
+      preLoaderRoute: typeof AuthenticatedAppAssistantIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/assistant/$threadId': {
+      id: '/_authenticated/app/assistant/$threadId'
+      path: '/app/assistant/$threadId'
+      fullPath: '/app/assistant/$threadId'
+      preLoaderRoute: typeof AuthenticatedAppAssistantThreadIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAppAssistantThreadIdRoute: typeof AuthenticatedAppAssistantThreadIdRoute
+  AuthenticatedAppAssistantIndexRoute: typeof AuthenticatedAppAssistantIndexRoute
+}
+
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAppAssistantThreadIdRoute:
+    AuthenticatedAppAssistantThreadIdRoute,
+  AuthenticatedAppAssistantIndexRoute: AuthenticatedAppAssistantIndexRoute,
+}
+
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   EcosystemRoute: EcosystemRoute,
   ManifestoRoute: ManifestoRoute,
@@ -129,3 +215,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

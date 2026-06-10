@@ -1,0 +1,8 @@
+# Magnolia OS
+
+> A unified ecosystem of intelligent apps built around one Magnolia Account.
+
+## Pages
+- [Home](/): Overview of Magnolia OS and featured apps
+- [Ecosystem](/ecosystem): Full catalog of Magnolia apps and roadmap
+- [Manifesto](/manifesto): Principles behind Magnolia OS
