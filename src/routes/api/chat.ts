@@ -17,6 +17,7 @@ export const Route = createFileRoute("/api/chat")({
         const body = (await request.json()) as Body;
         const messages = body.messages;
         const threadId = body.threadId;
+        const queuedId = body.queuedId;
         if (!Array.isArray(messages)) {
           return new Response("Messages are required", { status: 400 });
         }
