@@ -122,6 +122,19 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, status]);
   useEffect(() => { textareaRef.current?.focus(); }, [threadId, busy]);
 
+  // On thread load, recover any rows left in 'streaming' from an interrupted session.
+  useEffect(() => {
+    const stuck = queue.filter((q) => q.status === "streaming");
+    if (stuck.length === 0 || busy) return;
+    (async () => {
+      for (const row of stuck) {
+        await setStatusFn({ data: { id: row.id, status: "queued" } });
+      }
+      refreshQueue();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId, queue.length]);
+
   const sendQueued = useCallback(
     async (row: QueuedRow) => {
       sendingRef.current = true;
