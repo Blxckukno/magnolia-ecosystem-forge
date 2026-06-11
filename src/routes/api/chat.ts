@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { convertToModelMessages, streamText, type UIMessage } from "ai";
 import { createLovableAiGatewayProvider } from "@/lib/ai-gateway.server";
 
-type Body = { messages?: UIMessage[]; threadId?: string };
+type Body = { messages?: UIMessage[]; threadId?: string; queuedId?: string };
 
 const SYSTEM_PROMPT = `You are Magnolia, the intelligent assistant at the heart of Magnolia OS — a premium ecosystem of personal apps.
 
@@ -17,6 +17,7 @@ export const Route = createFileRoute("/api/chat")({
         const body = (await request.json()) as Body;
         const messages = body.messages;
         const threadId = body.threadId;
+        const queuedId = body.queuedId;
         if (!Array.isArray(messages)) {
           return new Response("Messages are required", { status: 400 });
         }
@@ -91,6 +92,11 @@ export const Route = createFileRoute("/api/chat")({
                   const title = text.slice(0, 60) + (text.length > 60 ? "…" : "");
                   await supabase.from("assistant_threads").update({ title }).eq("id", threadId);
                 }
+              }
+
+              // Remove the queued row now that the turn was persisted.
+              if (queuedId) {
+                await supabase.from("assistant_queued_messages").delete().eq("id", queuedId);
               }
             } catch (e) {
               console.error("Failed to persist chat", e);

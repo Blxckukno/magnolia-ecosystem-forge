@@ -3,9 +3,18 @@ import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
-import { listThreads, createThread, deleteThread, getThreadMessages } from "@/lib/assistant.functions";
+import {
+  listThreads,
+  createThread,
+  deleteThread,
+  getThreadMessages,
+  listQueuedMessages,
+  enqueueMessage,
+  dequeueMessage,
+  setQueuedStatus,
+} from "@/lib/assistant.functions";
 import { AssistantShell } from "./app.assistant.index";
 import { supabase } from "@/integrations/supabase/client";
 import { ArrowUp, Sparkles, Square, RefreshCw, X } from "lucide-react";
@@ -62,11 +71,18 @@ function AssistantThread() {
   );
 }
 
+type QueuedRow = { id: string; text: string; position: number; status: string; created_at: string };
+
 function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: string; initialMessages: UIMessage[]; onFirstResponse: () => void }) {
+  const qc = useQueryClient();
+  const listQueued = useServerFn(listQueuedMessages);
+  const enqueue = useServerFn(enqueueMessage);
+  const dequeue = useServerFn(dequeueMessage);
+  const setStatusFn = useServerFn(setQueuedStatus);
+
   const transport = useMemo(
     () => new DefaultChatTransport({
       api: "/api/chat",
-      body: { threadId },
       fetch: async (input, init) => {
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token;
@@ -75,52 +91,104 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
         return fetch(input, { ...init, headers });
       },
     }),
-    [threadId],
+    [],
   );
+
+  const queueKey = useMemo(() => ["queued", threadId] as const, [threadId]);
+  const { data: queue = [] } = useQuery<QueuedRow[]>({
+    queryKey: queueKey,
+    queryFn: () => listQueued({ data: { threadId } }),
+    refetchOnWindowFocus: true,
+  });
+
+  const refreshQueue = useCallback(() => qc.invalidateQueries({ queryKey: queueKey }), [qc, queueKey]);
 
   const { messages, sendMessage, status, stop, regenerate, error } = useChat({
     id: threadId,
     messages: initialMessages,
     transport,
-    onFinish: onFirstResponse,
+    onFinish: () => {
+      refreshQueue();
+      onFirstResponse();
+    },
   });
 
   const [input, setInput] = useState("");
-  const [queue, setQueue] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busy = status === "submitted" || status === "streaming";
+  const sendingRef = useRef(false);
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, status]);
   useEffect(() => { textareaRef.current?.focus(); }, [threadId, busy]);
 
-  // Drain the queue when the assistant finishes
+  // On thread load, recover any rows left in 'streaming' from an interrupted session.
   useEffect(() => {
-    if (status === "ready" && queue.length > 0) {
-      const [next, ...rest] = queue;
-      setQueue(rest);
-      void sendMessage({ text: next });
-    }
-  }, [status, queue, sendMessage]);
+    const stuck = queue.filter((q) => q.status === "streaming");
+    if (stuck.length === 0 || busy) return;
+    (async () => {
+      for (const row of stuck) {
+        await setStatusFn({ data: { id: row.id, status: "queued" } });
+      }
+      refreshQueue();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId, queue.length]);
+
+  const sendQueued = useCallback(
+    async (row: QueuedRow) => {
+      sendingRef.current = true;
+      try {
+        await setStatusFn({ data: { id: row.id, status: "streaming" } });
+        refreshQueue();
+        sendMessage(
+          { text: row.text },
+          { body: { threadId, queuedId: row.id } },
+        );
+      } finally {
+        sendingRef.current = false;
+      }
+    },
+    [refreshQueue, sendMessage, setStatusFn, threadId],
+  );
+
+  // Drain the persisted queue whenever the assistant is idle.
+  useEffect(() => {
+    if (status !== "ready") return;
+    if (sendingRef.current) return;
+    const next = queue.find((q) => q.status === "queued");
+    if (!next) return;
+    void sendQueued(next);
+  }, [status, queue, sendQueued]);
 
   async function submit() {
     const text = input.trim();
     if (!text) return;
     setInput("");
-    if (busy) {
-      setQueue((q) => [...q, text]);
-      return;
+    await enqueue({ data: { threadId, text } });
+    await refreshQueue();
+    // The drain effect picks it up when idle; if currently streaming, it waits.
+  }
+
+  async function removeFromQueue(id: string) {
+    await dequeue({ data: { id } });
+    refreshQueue();
+  }
+
+  async function handleStop() {
+    stop();
+    // Re-mark the in-flight row as queued so it gets retried after stop.
+    const inFlight = queue.find((q) => q.status === "streaming");
+    if (inFlight) {
+      await setStatusFn({ data: { id: inFlight.id, status: "queued" } });
+      refreshQueue();
     }
-    await sendMessage({ text });
   }
 
-  function removeFromQueue(idx: number) {
-    setQueue((q) => q.filter((_, i) => i !== idx));
-  }
-
+  const pendingQueue = queue.filter((q) => q.status === "queued");
   const empty = messages.length === 0;
   const lastIsAssistant = messages[messages.length - 1]?.role === "assistant";
-  const canRetry = !busy && lastIsAssistant && messages.length > 0;
+  const canRetry = !busy && lastIsAssistant && messages.length > 0 && queue.length === 0;
 
   return (
     <>
@@ -166,13 +234,13 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
 
       <div className="border-t border-hairline bg-background/80 backdrop-blur">
         <div className="mx-auto max-w-3xl px-6 py-4">
-          {queue.length > 0 && (
+          {pendingQueue.length > 0 && (
             <div className="mb-2 space-y-1">
-              {queue.map((q, i) => (
-                <div key={i} className="flex items-center gap-2 rounded-lg border border-hairline bg-surface px-3 py-1.5 text-xs text-muted-foreground">
+              {pendingQueue.map((q) => (
+                <div key={q.id} className="flex items-center gap-2 rounded-lg border border-hairline bg-surface px-3 py-1.5 text-xs text-muted-foreground">
                   <span className="rounded bg-surface-elevated px-1.5 py-0.5 text-[10px] uppercase tracking-wide">Queued</span>
-                  <span className="flex-1 truncate">{q}</span>
-                  <button onClick={() => removeFromQueue(i)} aria-label="Remove from queue" className="hover:text-foreground">
+                  <span className="flex-1 truncate">{q.text}</span>
+                  <button onClick={() => removeFromQueue(q.id)} aria-label="Remove from queue" className="hover:text-foreground">
                     <X className="h-3 w-3" />
                   </button>
                 </div>
@@ -193,7 +261,7 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
             />
             {busy ? (
               <button
-                onClick={() => stop()}
+                onClick={handleStop}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90"
                 aria-label="Stop"
               >
