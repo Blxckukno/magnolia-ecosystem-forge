@@ -93,6 +93,11 @@ export const Route = createFileRoute("/api/chat")({
                   await supabase.from("assistant_threads").update({ title }).eq("id", threadId);
                 }
               }
+
+              // Remove the queued row now that the turn was persisted.
+              if (queuedId) {
+                await supabase.from("assistant_queued_messages").delete().eq("id", queuedId);
+              }
             } catch (e) {
               console.error("Failed to persist chat", e);
             }
