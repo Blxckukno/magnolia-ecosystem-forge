@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { convertToModelMessages, streamText, type UIMessage } from "ai";
 import { createLovableAiGatewayProvider } from "@/lib/ai-gateway.server";
 
-type Body = { messages?: UIMessage[]; threadId?: string };
+type Body = { messages?: UIMessage[]; threadId?: string; queuedId?: string };
 
 const SYSTEM_PROMPT = `You are Magnolia, the intelligent assistant at the heart of Magnolia OS — a premium ecosystem of personal apps.
 
