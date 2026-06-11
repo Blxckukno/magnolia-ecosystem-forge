@@ -78,7 +78,7 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
     [threadId],
   );
 
-  const { messages, sendMessage, status } = useChat({
+  const { messages, sendMessage, status, stop, regenerate, error } = useChat({
     id: threadId,
     messages: initialMessages,
     transport,
@@ -86,6 +86,7 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
   });
 
   const [input, setInput] = useState("");
+  const [queue, setQueue] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busy = status === "submitted" || status === "streaming";
@@ -93,14 +94,33 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, status]);
   useEffect(() => { textareaRef.current?.focus(); }, [threadId, busy]);
 
+  // Drain the queue when the assistant finishes
+  useEffect(() => {
+    if (status === "ready" && queue.length > 0) {
+      const [next, ...rest] = queue;
+      setQueue(rest);
+      void sendMessage({ text: next });
+    }
+  }, [status, queue, sendMessage]);
+
   async function submit() {
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text) return;
     setInput("");
+    if (busy) {
+      setQueue((q) => [...q, text]);
+      return;
+    }
     await sendMessage({ text });
   }
 
+  function removeFromQueue(idx: number) {
+    setQueue((q) => q.filter((_, i) => i !== idx));
+  }
+
   const empty = messages.length === 0;
+  const lastIsAssistant = messages[messages.length - 1]?.role === "assistant";
+  const canRetry = !busy && lastIsAssistant && messages.length > 0;
 
   return (
     <>
@@ -128,12 +148,37 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
                 <Sparkles className="h-3.5 w-3.5 animate-pulse text-magnolia" /> Thinking…
               </div>
             )}
+            {error && (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error.message || "Something went wrong."}
+              </div>
+            )}
+            {canRetry && (
+              <div className="flex justify-center">
+                <button onClick={() => regenerate()} className="flex items-center gap-1.5 rounded-full border border-hairline bg-surface px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground">
+                  <RefreshCw className="h-3 w-3" /> Regenerate
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
       <div className="border-t border-hairline bg-background/80 backdrop-blur">
         <div className="mx-auto max-w-3xl px-6 py-4">
+          {queue.length > 0 && (
+            <div className="mb-2 space-y-1">
+              {queue.map((q, i) => (
+                <div key={i} className="flex items-center gap-2 rounded-lg border border-hairline bg-surface px-3 py-1.5 text-xs text-muted-foreground">
+                  <span className="rounded bg-surface-elevated px-1.5 py-0.5 text-[10px] uppercase tracking-wide">Queued</span>
+                  <span className="flex-1 truncate">{q}</span>
+                  <button onClick={() => removeFromQueue(i)} aria-label="Remove from queue" className="hover:text-foreground">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="relative flex items-end gap-2 rounded-2xl border border-hairline bg-surface px-4 py-3 focus-within:border-magnolia">
             <textarea
               ref={textareaRef}
@@ -143,16 +188,26 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
               }}
               rows={1}
-              placeholder="Message Magnolia…"
+              placeholder={busy ? "Queue a follow-up…" : "Message Magnolia…"}
               className="max-h-40 flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
-            <button
-              onClick={submit} disabled={busy || !input.trim()}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90 disabled:opacity-30"
-              aria-label="Send"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </button>
+            {busy ? (
+              <button
+                onClick={() => stop()}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90"
+                aria-label="Stop"
+              >
+                <Square className="h-3.5 w-3.5 fill-current" />
+              </button>
+            ) : (
+              <button
+                onClick={submit} disabled={!input.trim()}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90 disabled:opacity-30"
+                aria-label="Send"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </button>
+            )}
           </div>
           <p className="mt-2 text-center text-[10px] text-muted-foreground">Magnolia can make mistakes. Verify important info.</p>
         </div>
