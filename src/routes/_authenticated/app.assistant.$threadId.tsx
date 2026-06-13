@@ -78,7 +78,7 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
     [threadId],
   );
 
-  const { messages, sendMessage, status, stop, regenerate, setMessages } = useChat({
+  const { messages, sendMessage, status, stop, regenerate } = useChat({
     id: threadId,
     messages: initialMessages,
     transport,
