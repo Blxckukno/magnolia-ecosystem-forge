@@ -46,44 +46,6 @@ export type Database = {
           },
         ]
       }
-      assistant_queued_messages: {
-        Row: {
-          created_at: string
-          id: string
-          position: number
-          status: string
-          text: string
-          thread_id: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          position?: number
-          status?: string
-          text: string
-          thread_id: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          position?: number
-          status?: string
-          text?: string
-          thread_id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "assistant_queued_messages_thread_id_fkey"
-            columns: ["thread_id"]
-            isOneToOne: false
-            referencedRelation: "assistant_threads"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       assistant_threads: {
         Row: {
           created_at: string
