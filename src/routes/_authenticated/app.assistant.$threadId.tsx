@@ -8,7 +8,7 @@ import ReactMarkdown from "react-markdown";
 import { listThreads, createThread, deleteThread, getThreadMessages } from "@/lib/assistant.functions";
 import { AssistantShell } from "./app.assistant.index";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowUp, Sparkles } from "lucide-react";
+import { ArrowUp, Sparkles, Square, RotateCcw, X } from "lucide-react";
 import { MagnoliaLogo } from "@/components/magnolia/Logo";
 
 export const Route = createFileRoute("/_authenticated/app/assistant/$threadId")({
