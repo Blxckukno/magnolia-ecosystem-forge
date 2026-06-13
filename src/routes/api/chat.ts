@@ -58,12 +58,15 @@ export const Route = createFileRoute("/api/chat")({
           model,
           system: SYSTEM_PROMPT,
           messages: await convertToModelMessages(messages),
+          abortSignal: request.signal,
         });
 
         return result.toUIMessageStreamResponse({
           originalMessages: messages,
-          onFinish: async ({ messages: finalMessages }) => {
+          onFinish: async ({ messages: finalMessages, isAborted }) => {
             if (!threadId) return;
+            // Client persists aborted runs (Worker tears down on disconnect).
+            if (isAborted) return;
             try {
               // Persist the last user message (if not already saved) and the new assistant message.
               const lastUser = [...finalMessages].reverse().find((m) => m.role === "user");

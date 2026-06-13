@@ -8,7 +8,7 @@ import ReactMarkdown from "react-markdown";
 import { listThreads, createThread, deleteThread, getThreadMessages } from "@/lib/assistant.functions";
 import { AssistantShell } from "./app.assistant.index";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowUp, Sparkles } from "lucide-react";
+import { ArrowUp, Sparkles, Square, RotateCcw, X } from "lucide-react";
 import { MagnoliaLogo } from "@/components/magnolia/Logo";
 
 export const Route = createFileRoute("/_authenticated/app/assistant/$threadId")({
@@ -78,29 +78,82 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
     [threadId],
   );
 
-  const { messages, sendMessage, status } = useChat({
+  const { messages, sendMessage, status, stop, regenerate } = useChat({
     id: threadId,
     messages: initialMessages,
     transport,
-    onFinish: onFirstResponse,
+    onFinish: async ({ message, isAbort }) => {
+      onFirstResponse();
+      if (isAbort && !cancelSavedRef.current) {
+        cancelSavedRef.current = true;
+        try {
+          const parts = (message?.parts ?? []) as UIMessage["parts"];
+          const cloned = parts.map((p) => ({ ...p })) as UIMessage["parts"];
+          let lastTextIdx = -1;
+          cloned.forEach((p, i) => { if (p.type === "text") lastTextIdx = i; });
+          if (lastTextIdx >= 0) {
+            const t = cloned[lastTextIdx] as { type: "text"; text: string };
+            t.text = `${t.text}\n\n_Stopped._`;
+          } else {
+            cloned.push({ type: "text", text: "_Stopped._" } as never);
+          }
+          // Persist the in-flight user message + partial assistant message
+          const allMsgs = [...messages];
+          const lastUser = [...allMsgs].reverse().find((m) => m.role === "user");
+          const inserts: Array<{ thread_id: string; role: string; parts: unknown }> = [];
+          if (lastUser) inserts.push({ thread_id: threadId, role: "user", parts: lastUser.parts });
+          inserts.push({ thread_id: threadId, role: "assistant", parts: cloned });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await supabase.from("assistant_messages").insert(inserts as any);
+          await supabase.from("assistant_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
+        } catch (e) {
+          console.error("Failed to persist canceled message", e);
+        }
+      }
+    },
   });
 
   const [input, setInput] = useState("");
+  const [queue, setQueue] = useState<string[]>([]);
+  const cancelSavedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busy = status === "submitted" || status === "streaming";
 
+  useEffect(() => {
+    if (busy) cancelSavedRef.current = false;
+  }, [busy]);
+
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, status]);
   useEffect(() => { textareaRef.current?.focus(); }, [threadId, busy]);
 
-  async function submit() {
+  // Drain queue when status returns to ready
+  useEffect(() => {
+    if (status === "ready" && queue.length > 0) {
+      const [next, ...rest] = queue;
+      setQueue(rest);
+      sendMessage({ text: next });
+    }
+  }, [status, queue, sendMessage]);
+
+  function submit() {
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text) return;
     setInput("");
-    await sendMessage({ text });
+    if (busy) {
+      setQueue((q) => [...q, text]);
+    } else {
+      sendMessage({ text });
+    }
+  }
+
+  function retry() {
+    if (busy) return;
+    regenerate();
   }
 
   const empty = messages.length === 0;
+  const lastIsAssistant = messages.length > 0 && messages[messages.length - 1].role === "assistant";
 
   return (
     <>
@@ -128,12 +181,31 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
                 <Sparkles className="h-3.5 w-3.5 animate-pulse text-magnolia" /> Thinking…
               </div>
             )}
+            {!busy && lastIsAssistant && (
+              <div className="flex justify-start">
+                <button onClick={retry} className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-surface px-2.5 py-1 text-xs text-muted-foreground hover:bg-surface-elevated hover:text-foreground">
+                  <RotateCcw className="h-3 w-3" /> Retry
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
       <div className="border-t border-hairline bg-background/80 backdrop-blur">
         <div className="mx-auto max-w-3xl px-6 py-4">
+          {queue.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {queue.map((q, i) => (
+                <div key={i} className="group flex items-center gap-1.5 rounded-full border border-hairline bg-surface px-2.5 py-1 text-xs text-muted-foreground">
+                  <span className="max-w-[200px] truncate">Queued: {q}</span>
+                  <button onClick={() => setQueue((qs) => qs.filter((_, j) => j !== i))} className="opacity-60 hover:opacity-100" aria-label="Remove from queue">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="relative flex items-end gap-2 rounded-2xl border border-hairline bg-surface px-4 py-3 focus-within:border-magnolia">
             <textarea
               ref={textareaRef}
@@ -143,16 +215,27 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
               }}
               rows={1}
-              placeholder="Message Magnolia…"
+              placeholder={busy ? "Queue a follow-up…" : "Message Magnolia…"}
               className="max-h-40 flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
-            <button
-              onClick={submit} disabled={busy || !input.trim()}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90 disabled:opacity-30"
-              aria-label="Send"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </button>
+            {busy ? (
+              <button
+                onClick={() => stop()}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90"
+                aria-label="Stop"
+                type="button"
+              >
+                <Square className="h-3.5 w-3.5 fill-current" />
+              </button>
+            ) : (
+              <button
+                onClick={submit} disabled={!input.trim()}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90 disabled:opacity-30"
+                aria-label="Send"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </button>
+            )}
           </div>
           <p className="mt-2 text-center text-[10px] text-muted-foreground">Magnolia can make mistakes. Verify important info.</p>
         </div>
