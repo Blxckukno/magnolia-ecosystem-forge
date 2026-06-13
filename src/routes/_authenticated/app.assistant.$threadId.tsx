@@ -103,7 +103,8 @@ function ChatWindow({ threadId, initialMessages, onFirstResponse }: { threadId: 
           const inserts: Array<{ thread_id: string; role: string; parts: unknown }> = [];
           if (lastUser) inserts.push({ thread_id: threadId, role: "user", parts: lastUser.parts });
           inserts.push({ thread_id: threadId, role: "assistant", parts: cloned });
-          await supabase.from("assistant_messages").insert(inserts);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await supabase.from("assistant_messages").insert(inserts as any);
           await supabase.from("assistant_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
         } catch (e) {
           console.error("Failed to persist canceled message", e);
