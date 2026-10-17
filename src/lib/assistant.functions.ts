@@ -2,13 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 import { throwGenericDbError } from "@/lib/assistant-errors";
-
-const THREAD_NOT_FOUND = "Thread not found";
-
-const titleSchema = z
-  .string()
-  .transform((t) => t.trim())
-  .pipe(z.string().min(1).max(120));
+import { threadTitleSchema, requireThreadRow } from "@/lib/assistant-rules";
 
 export const listThreads = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -24,7 +18,7 @@ export const listThreads = createServerFn({ method: "GET" })
 
 export const createThread = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ title: titleSchema.optional() }).parse(input))
+  .inputValidator((input: unknown) => z.object({ title: threadTitleSchema.optional() }).parse(input))
   .handler(async ({ data, context }) => {
     const { data: row, error } = await context.supabase
       .from("assistant_threads")
@@ -37,7 +31,9 @@ export const createThread = createServerFn({ method: "POST" })
 
 export const renameThread = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid(), title: titleSchema }).parse(input))
+  .inputValidator((input: unknown) =>
+    z.object({ id: z.string().uuid(), title: threadTitleSchema }).parse(input),
+  )
   .handler(async ({ data, context }) => {
     const { data: row, error } = await context.supabase
       .from("assistant_threads")
@@ -47,7 +43,7 @@ export const renameThread = createServerFn({ method: "POST" })
       .select("id")
       .maybeSingle();
     if (error) throwGenericDbError("renameThread", error);
-    if (!row) throw new Error(THREAD_NOT_FOUND);
+    requireThreadRow(row);
     return { ok: true };
   });
 
@@ -63,7 +59,7 @@ export const deleteThread = createServerFn({ method: "POST" })
       .select("id")
       .maybeSingle();
     if (error) throwGenericDbError("deleteThread", error);
-    if (!row) throw new Error(THREAD_NOT_FOUND);
+    requireThreadRow(row);
     return { ok: true };
   });
 
@@ -78,7 +74,7 @@ export const getThreadMessages = createServerFn({ method: "POST" })
       .eq("user_id", context.userId)
       .maybeSingle();
     if (threadError) throwGenericDbError("getThreadMessages", threadError);
-    if (!thread) throw new Error(THREAD_NOT_FOUND);
+    requireThreadRow(thread);
 
     const { data: rows, error } = await context.supabase
       .from("assistant_messages")
